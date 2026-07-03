@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Team Leave Scheduler</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .3rem;}
+  #apiBase { font-size: .8rem; color: #666; }
+  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; font-size: .9rem; }
+  th { background: #f5f5f5; }
+  .status-pending { color: #a06a00; }
+  .status-approved { color: #157a15; }
+  .status-rejected { color: #a01515; text-decoration: line-through; }
+  form { display: flex; gap: .5rem; align-items: end; flex-wrap: wrap; margin-top: .5rem; }
+  label { display: flex; flex-direction: column; font-size: .8rem; gap: .2rem; }
+  button { cursor: pointer; padding: 6px 12px; }
+  .msg { margin-top: .5rem; padding: 8px; border-radius: 4px; font-size: .9rem; }
+  .msg.error { background: #fde; color: #a01515; }
+  .msg.success { background: #efe; color: #157a15; }
+  .actions button { margin-right: 4px; font-size: .8rem; padding: 2px 8px; }
+</style>
+</head>
+<body>
+  <h1>Team Leave Scheduler</h1>
+  <div id="apiBase"></div>
+
+  <h2>Submit a leave request</h2>
+  <form id="submitForm">
+    <label>Employee
+      <select id="employeeSelect" required></select>
+    </label>
+    <label>Start date
+      <input type="date" id="startDate" required>
+    </label>
+    <label>End date
+      <input type="date" id="endDate" required>
+    </label>
+    <button type="submit">Submit request</button>
+  </form>
+  <div id="submitMsg"></div>
+
+  <h2>Next 30 days</h2>
+  <div id="listMsg"></div>
+  <table id="requestsTable">
+    <thead>
+      <tr><th>Employee</th><th>Team</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  ? "http://localhost:8000"
+  : "http://localhost:8000"; // change if the API is deployed elsewhere
+document.getElementById("apiBase").textContent = "API: " + API_BASE;
+
+async function loadEmployees() {
+  const res = await fetch(`${API_BASE}/employees`);
+  const employees = await res.json();
+  const select = document.getElementById("employeeSelect");
+  select.innerHTML = employees.map(e => `<option value="${e.id}">${e.name} (${e.team})</option>`).join("");
+}
+
+async function loadRequests() {
+  const listMsg = document.getElementById("listMsg");
+  listMsg.textContent = "Loading...";
+  try {
+    const res = await fetch(`${API_BASE}/leave-requests?days=30`);
+    const requests = await res.json();
+    listMsg.textContent = "";
+    const tbody = document.querySelector("#requestsTable tbody");
+    tbody.innerHTML = requests.map(r => `
+      <tr>
+        <td>${r.employee_name}</td>
+        <td>${r.team}</td>
+        <td>${r.start_date}</td>
+        <td>${r.end_date}</td>
+        <td class="status-${r.status}">${r.status}</td>
+        <td class="actions">
+          ${r.status === "pending" ? `
+            <button onclick="decide(${r.id}, 'approve')">Approve</button>
+            <button onclick="decide(${r.id}, 'reject')">Reject</button>
+          ` : ""}
+        </td>
+      </tr>
+    `).join("");
+  } catch (err) {
+    listMsg.textContent = "Could not load requests: " + err.message;
+  }
+}
+
+async function decide(id, action) {
+  const res = await fetch(`${API_BASE}/leave-requests/${id}/${action}`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Action failed");
+  }
+  loadRequests();
+}
+
+document.getElementById("submitForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const submitMsg = document.getElementById("submitMsg");
+  submitMsg.className = "msg";
+  submitMsg.textContent = "";
+
+  const payload = {
+    employee_id: parseInt(document.getElementById("employeeSelect").value, 10),
+    start_date: document.getElementById("startDate").value,
+    end_date: document.getElementById("endDate").value,
+  };
+
+  const res = await fetch(`${API_BASE}/leave-requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+
+  if (res.ok) {
+    submitMsg.className = "msg success";
+    submitMsg.textContent = `Request #${data.id} submitted as pending.`;
+    e.target.reset();
+    loadRequests();
+  } else {
+    submitMsg.className = "msg error";
+    submitMsg.textContent = data.detail || "Submission failed";
+  }
+});
+
+loadEmployees();
+loadRequests();
+</script>
+</body>
+</html>
